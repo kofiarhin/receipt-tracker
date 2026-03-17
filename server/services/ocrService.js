@@ -1,18 +1,42 @@
-const fs = require('fs/promises');
-const axios = require('axios');
+const path = require("path");
+const vision = require("@google-cloud/vision");
 
-const performOcr = async ({ filePath, endpoint, apiKey }) => {
-  if (!endpoint || endpoint.includes('example.com')) {
-    return fs.readFile(filePath, 'utf-8').catch(() => '');
+let client;
+
+const getVisionClient = () => {
+  if (client) {
+    return client;
   }
 
-  const imageBase64 = (await fs.readFile(filePath)).toString('base64');
-  const { data } = await axios.post(
-    endpoint,
-    { image: imageBase64 },
-    { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 10000 },
-  );
-  return data.text || '';
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  if (!credentialsPath) {
+    throw new Error("GOOGLE_APPLICATION_CREDENTIALS is not set");
+  }
+
+  client = new vision.ImageAnnotatorClient({
+    keyFilename: path.resolve(credentialsPath),
+  });
+
+  return client;
 };
 
-module.exports = { performOcr };
+const performOcr = async ({ filePath }) => {
+  if (!filePath) {
+    throw new Error("filePath is required for OCR");
+  }
+
+  const visionClient = getVisionClient();
+  const [result] = await visionClient.textDetection(filePath);
+  const detections = result.textAnnotations || [];
+  const text = detections[0]?.description?.trim() || "";
+
+  return {
+    provider: "google-vision",
+    text,
+  };
+};
+
+module.exports = {
+  performOcr,
+};
